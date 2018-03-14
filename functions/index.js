@@ -14,7 +14,7 @@ const _ = require('lodash');
 const functions = require('firebase-functions');
 let functionsConfig;
 let runOnFunctionFireBaseServer = false;
-let versionPackage = require('./package.json');
+let packageJSON = require('./package.json');
 
 try {
   functionsConfig = functions.config();
@@ -122,7 +122,7 @@ debug('[Start]');
 debug('-----------------------------------------');
 debug(`Node.js Version: ${process.version}`);
 debug('-----------------------------------------');
-debug(`DialogFlow App Version: ${versionPackage.version}`);
+debug(`DialogFlow App Version: ${packageJSON.version}`);
 debug('-----------------------------------------');
 
 debug(`We can handle actions: ${actionNames}`);

@@ -4,7 +4,7 @@ const dialog = require('../dialog');
 const versionStrings = require('../strings').intents.version;
 const {getLastReprompt, getLastSuggestions} = require('../state/dialog');
 
-let packageJSON = require('../package.json');
+let packageJSON = require('../../package.json');
 
 /**
  * handle version intent

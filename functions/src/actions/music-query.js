@@ -8,14 +8,19 @@ const acknowledge = require('./high-order-handlers/middlewares/acknowledge');
 const ask = require('./high-order-handlers/middlewares/ask');
 const fulfilResolvers = require('./high-order-handlers/middlewares/fulfil-resolvers');
 const renderSpeech = require('./high-order-handlers/middlewares/render-speech');
+const repairBrokenSlots = require('./high-order-handlers/middlewares/repair-broken-slots');
 const suggestions = require('./high-order-handlers/middlewares/suggestions');
-const playbackFulfillment = require('./high-order-handlers/middlewares/playback-fulfillment');
 const prompt = require('./high-order-handlers/middlewares/prompt');
+
+const feederFromSlotScheme = require('./high-order-handlers/middlewares/feeder-from-slots-scheme');
+const parepareSongData = require('./high-order-handlers/middlewares/song-data');
+const playlistFromFeeder = require('./high-order-handlers/middlewares/playlist-from-feeder');
+const playSong = require('./high-order-handlers/middlewares/play-song');
 
 /**
  * Handle music query action
  * - fill slots of music query
- * - call fulfilment feeder
+ * - call fulfillment feeder
  *
  * TODO:
  * 1) it seems we could use express.js/koa middleware architecture here
@@ -45,21 +50,61 @@ function handler (app) {
 
   processPreset(app, slotScheme);
 
+  const slots = query.getSlots(app);
+  debug('we had slots:', Object.keys(slots));
+
   const complete = query.hasSlots(app, slotScheme.slots);
   if (complete) {
     debug('pipeline playback');
-    return Promise
-      .resolve({app, slotScheme, playlist, query})
-      .then(playbackFulfillment());
+    return feederFromSlotScheme()({app, newValues, playlist, slots, slotScheme, query})
+      .then(playlistFromFeeder())
+      .then((context) => {
+        debug('got playlist');
+        return acknowledge({speeches: 'slotScheme.fulfillment.speech', prioritySlots: 'slots'})(context)
+          .then(parepareSongData())
+          .then(fulfilResolvers())
+          .then(renderSpeech())
+          .then(playSong());
+      })
+      .catch((context) => {
+        debug(`we don't have playlist (or it is empty)`);
+        const brokenSlots = context.newValues || {};
+        return repairBrokenSlots()(Object.assign({}, context, {
+          brokenSlots,
+          // drop any acknowledges before
+          speech: [],
+        }))
+          .then(suggestions({exclude: Object.keys(brokenSlots)}))
+          .then(fulfilResolvers())
+          .then(renderSpeech())
+          // TODO: should clean broken slots from queue state
+          .then(ask());
+      });
   }
 
   debug('pipeline query');
-
-  const slots = query.getSlots(app);
-  debug('we had slots:', Object.keys(slots));
   return acknowledge()({app, slots, slotScheme, speech: [], newValues})
     .then(prompt())
     .then(suggestions())
+    .then(context => {
+      if (context && context.suggestions.length === 0) {
+        // suggestions here are available range
+        // when it is 0 we should later last input
+        // TODO: when is is 1 we could choose this one option without asking
+
+        // 1. find last prompt
+        // 2. get repair phrase from the last prompt
+        // 3. render repair phrase
+        const brokenSlots = context.newValues;
+        return repairBrokenSlots()(Object.assign({}, context, {
+          brokenSlots,
+          // drop any acknowledges before
+          speech: [],
+        }))
+          .then(suggestions({exclude: Object.keys(brokenSlots)}));
+      }
+      return context;
+    })
     .then(fulfilResolvers())
     .then(renderSpeech())
     .then(ask());
